@@ -4,6 +4,7 @@ import torch.nn as nn
 from torch.utils.checkpoint import checkpoint, checkpoint_sequential
 
 
+## 为PyTorch模型启用梯度检查点（Gradient Checkpointing）功能，并设置相关的属性
 def set_grad_checkpoint(model, use_fp32_attention=False, gc_step=1):
     assert isinstance(model, nn.Module)
 

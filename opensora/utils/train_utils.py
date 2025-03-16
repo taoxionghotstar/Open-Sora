@@ -13,27 +13,36 @@ from .misc import get_logger
 
 
 def create_colossalai_plugin(plugin, dtype, grad_clip, sp_size, reduce_bucket_size_in_m: int = 20):
+    ## 使用ZeRO阶段2的优化，支持内存优化和混合精度训练，不支持序列并行（sp_size必须为1）
     if plugin == "zero2":
         assert sp_size == 1, "Zero2 plugin does not support sequence parallelism"
+        ## LowLevelZeroPlugin用于实现ZeRO（Zero Redundancy Optimizer）的第1阶段和第2阶段优化
+        ## ZeRO阶段1，切分优化器状态（如梯度、动量等），并将它们分发到各个数据并行进程或GPU上；提供比PyTorch的DistributedDataParallel（DDP）更高的内存效率和更快的训练速度
+        ## ZeRO阶段2，在阶段1的基础上，进一步切分优化器状态和梯度；不支持局部梯度累积，因此不建议与流水线并行（Pipeline Parallelism）一起使用￼。
         plugin = LowLevelZeroPlugin(
-            stage=2,
+            stage=2,  ## 使用ZeRO的第二阶段优化
             precision=dtype,
-            initial_scale=2**16,
-            max_norm=grad_clip,
-            reduce_bucket_size_in_m=reduce_bucket_size_in_m,
+            initial_scale=2**16,  ## 初始缩放因子，用于混合精度训练
+            max_norm=grad_clip,  ## 梯度裁剪的最大范数
+            reduce_bucket_size_in_m=reduce_bucket_size_in_m,  ## 梯度归约的桶大小（单位为百万）。较大的桶大小可以减少通信次数，但会增加内存占用【
         )
-        set_data_parallel_group(dist.group.WORLD)
+        ## 设置当前的数据并行组，以便在后续的训练过程中，ColossalAI可以正确地管理数据并行的通信和同步操作
+        ## dist.group.WORLD是一个全局进程组，表示所有已初始化的进程，包含所有参与训练的进程
+        set_data_parallel_group(dist.group.WORLD)  ## 所有进程都将参与数据并行操作
     elif plugin == "zero2-seq":
         assert sp_size > 1, "Zero2-seq plugin requires sequence parallelism"
+        ## ZeroSeqParallelPlugin用于在大规模分布式训练中实现高效的内存优化和并行计算
         plugin = ZeroSeqParallelPlugin(
-            sp_size=sp_size,
-            stage=2,
+            sp_size=sp_size,  ## 序列并行的大小，表示将输入序列分割成多少个子序列
+            stage=2,  ## 使用阶段2，表示切分优化器状态和梯度
             precision=dtype,
-            initial_scale=2**16,
-            max_norm=grad_clip,
-            reduce_bucket_size_in_m=reduce_bucket_size_in_m,
+            initial_scale=2**16,  ## 初始缩放因子，用于混合精度训练
+            max_norm=grad_clip,  ## 梯度裁剪的最大范数
+            reduce_bucket_size_in_m=reduce_bucket_size_in_m,  ## 梯度归约的桶大小（单位为百万）。较大的桶大小可以减少通信次数，但会增加内存占用
         )
+        ## 设置序列并行（Sequence Parallelism）进程组，将插件中定义的序列并行组（sp_group）设置为当前的序列并行进程组
         set_sequence_parallel_group(plugin.sp_group)
+        ## 设置当前的数据并行组，以便在后续的训练过程中，ColossalAI可以正确地管理数据并行的通信和同步操作
         set_data_parallel_group(plugin.dp_group)
     else:
         raise ValueError(f"Unknown plugin {plugin}")

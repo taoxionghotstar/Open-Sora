@@ -54,9 +54,9 @@ def gradient_penalty_fn(images, output):
 class VAELoss(nn.Module):
     def __init__(
         self,
-        logvar_init=0.0,
-        perceptual_loss_weight=0.1,
-        kl_loss_weight=0.000001,
+        logvar_init=0.0,  ## 初始化logvar的值，logvar是方差的对数，用于调整重构损失的权重
+        perceptual_loss_weight=0.1,  ## 感知损失的权重
+        kl_loss_weight=0.000001,  ## KL损失的权重
         device="cpu",
         dtype="bf16",
     ):
@@ -71,24 +71,28 @@ class VAELoss(nn.Module):
                 raise NotImplementedError(f"dtype: {dtype}")
 
         # KL Loss
-        self.kl_loss_weight = kl_loss_weight
+        self.kl_loss_weight = kl_loss_weight  ## KL散度损失的权重
         # Perceptual Loss
+        ## 使用 LPIPS（Learned Perceptual Image Patch Similarity）作为感知损失函数
+        ## 利用预训练的深度神经网络（如 VGG、AlexNet 或 SqueezeNet）提取图像的特征表示，然后计算这些特征之间的差异
         self.perceptual_loss_fn = LPIPS().eval().to(device, dtype)
-        self.perceptual_loss_weight = perceptual_loss_weight
-        self.logvar = nn.Parameter(torch.ones(size=()) * logvar_init)
+        self.perceptual_loss_weight = perceptual_loss_weight  ## 感知损失的权重
+        self.logvar = nn.Parameter(torch.ones(size=()) * logvar_init)  ## 初始化为一个可学习的参数
 
     def forward(
         self,
-        video,
-        recon_video,
-        posterior,
-        nll_weights=None,
-        no_perceptual=False,
+        video,  ## 原始视频张量，形状为(b, c, t, h, w)，其中b是批次大小，c是通道数，t是时间维度，h和w是空间维度
+        recon_video,  ## 重构后的视频张量，形状与video相同
+        posterior,  ## 后验分布对象，用于计算KL散度损失
+        nll_weights=None,  ## 可选的权重张量，用于对重构损失进行加权
+        no_perceptual=False,  ## 表示是否禁用感知损失
     ):
+        ## 将时间维度与批次维度合并，以便逐帧计算损失
         video = rearrange(video, "b c t h w -> (b t) c h w").contiguous()
         recon_video = rearrange(recon_video, "b c t h w -> (b t) c h w").contiguous()
 
         # reconstruction loss
+        ## 重构损失使用绝对误差（L1 损失）计算原始视频和重构视频之间的差异
         recon_loss = torch.abs(video - recon_video)
 
         # perceptual loss
@@ -96,6 +100,7 @@ class VAELoss(nn.Module):
             # handle channels
             channels = video.shape[1]
             assert channels in {1, 3}
+            ## 如果输入视频是单通道（灰度图），需要将其重复扩展为三通道，以适配LPIPS的输入要求
             if channels == 1:
                 input_vgg_input = repeat(video, "b 1 h w -> b c h w", c=3)
                 recon_vgg_input = repeat(recon_video, "b 1 h w -> b c h w", c=3)
@@ -103,14 +108,17 @@ class VAELoss(nn.Module):
                 input_vgg_input = video
                 recon_vgg_input = recon_video
 
+            ## 感知损失通过 LPIPS 函数计算，并乘以权重 perceptual_loss_weight 后加到重构损失中
             perceptual_loss = self.perceptual_loss_fn(input_vgg_input, recon_vgg_input)
             recon_loss = recon_loss + self.perceptual_loss_weight * perceptual_loss
 
+        ## 重构损失除以exp(logvar)，表示对重构误差的归一化；logvar本身，表示模型的不确定性
         nll_loss = recon_loss / torch.exp(self.logvar) + self.logvar
 
         weighted_nll_loss = nll_loss
         if nll_weights is not None:
             weighted_nll_loss = nll_weights * nll_loss
+        ## 计算加权和未加权的负对数似然损失的均值
         weighted_nll_loss = torch.sum(weighted_nll_loss) / weighted_nll_loss.shape[0]
         nll_loss = torch.sum(nll_loss) / nll_loss.shape[0]
 

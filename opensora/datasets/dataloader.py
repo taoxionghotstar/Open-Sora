@@ -205,13 +205,14 @@ class _MultiProcessingDataLoaderIterForVideo(_MultiProcessingDataLoaderIter):
 class DataloaderForVideo(DataLoader):
     def _get_iterator(self) -> "_BaseDataLoaderIter":
         if self.num_workers == 0:
-            return _SingleProcessDataLoaderIter(self)
+            return _SingleProcessDataLoaderIter(self)  ## PyTorch 内置的单进程迭代器
         else:
-            self.check_worker_number_rationality()
-            return _MultiProcessingDataLoaderIterForVideo(self)
+            self.check_worker_number_rationality()  ## 确保 num_workers 的值是合理的（例如，不超过可用 CPU 核心数）
+            return _MultiProcessingDataLoaderIterForVideo(self)  ## 自定义的多进程迭代器类
 
 
 # Deterministic dataloader
+## 为 PyTorch 的多进程数据加载器（DataLoader）生成一个种子设置函数，用于确保每个数据加载子进程（worker）的随机性是可复现的
 def get_seed_worker(seed):
     def seed_worker(worker_id):
         worker_seed = seed
@@ -223,19 +224,19 @@ def get_seed_worker(seed):
 
 
 def prepare_dataloader(
-    dataset,
-    batch_size=None,
-    shuffle=False,
+    dataset,  ## e.g. VideoTextDataset的实例，表示要加载的数据集
+    batch_size=None,  ## 指定每个批次加载的数据样本数量
+    shuffle=False,  ## 是否在每个 epoch 开始时随机打乱数据集
     seed=1024,
-    drop_last=False,
-    pin_memory=False,
-    num_workers=0,
-    process_group: Optional[ProcessGroup] = None,
-    bucket_config=None,
-    num_bucket_build_workers=1,
-    prefetch_factor=None,
-    cache_pin_memory=False,
-    **kwargs,
+    drop_last=False,  ## 在最后一个批次中，如果数据集的大小不能被 batch_size 整除，是否丢弃最后一个不完整的批次
+    pin_memory=False,  ## 是否将数据加载到 GPU 的固定内存中
+    num_workers=0,  ## 指定加载数据时使用的子进程数量，如果为 0，则在主进程中加载数据；如果大于 0，则使用多进程加载数据
+    process_group: Optional[ProcessGroup] = None,  ## 在分布式训练中，指定进程组
+    bucket_config=None,  ## 用于配置数据分桶策略，分桶通常用于处理变长数据（如视频帧数不同），通过将相似长度的数据分到同一个桶中，减少填充（padding）带来的计算开销
+    num_bucket_build_workers=1,  ## 在构建分桶时使用的子进程数量
+    prefetch_factor=None,  ## 指定每个子进程预取的数据批次数量
+    cache_pin_memory=False,  ## 是否将缓存数据固定在内存中，如果为 True，可以加速数据加载速度，但会占用更多内存
+    **kwargs,  ## 用于传递额外的关键字参数，可以被 torch.utils.data.DataLoader 或其他相关函数使用
 ):
     _kwargs = kwargs.copy()
     if isinstance(dataset, VariableVideoTextDataset):
@@ -266,24 +267,26 @@ def prepare_dataloader(
         )
     elif isinstance(dataset, VideoTextDataset):
         process_group = process_group or _get_default_group()
+        ## 用于分布式训练的采样器，负责在多个进程（或设备）之间分配数据集的样本
         sampler = StatefulDistributedSampler(
             dataset,
-            num_replicas=process_group.size(),
-            rank=process_group.rank(),
+            num_replicas=process_group.size(),  ## 根据进程组的大小来确定数据集的分割份数
+            rank=process_group.rank(),  ## 当前进程的编号
             shuffle=shuffle,
         )
+        ## 动态选择数据加载器（DataLoader）的类
         dl_cls = DataloaderForVideo if cache_pin_memory else DataLoader
         return (
             dl_cls(
                 dataset,
                 batch_size=batch_size,
                 sampler=sampler,
-                worker_init_fn=get_seed_worker(seed),
+                worker_init_fn=get_seed_worker(seed),  ## 每个子进程（worker）初始化时调用的函数
                 drop_last=drop_last,
                 pin_memory=pin_memory,
                 num_workers=num_workers,
-                collate_fn=collate_fn_default,
-                prefetch_factor=prefetch_factor,
+                collate_fn=collate_fn_default,  ## 定义如何将多个样本组合成一个批次
+                prefetch_factor=prefetch_factor,  ## 指定每个子进程预取的数据批次数量
                 **_kwargs,
             ),
             sampler,

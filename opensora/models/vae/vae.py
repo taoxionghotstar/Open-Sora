@@ -180,9 +180,15 @@ class VideoAutoencoderPipeline(PreTrainedModel):
         self.register_buffer("shift", shift)
 
     def encode(self, x):
+        ## 对x进行空间编码，得到x_z，形状通常为(B, latent_channels, T, H', W')，其中H'和W'是下采样后的空间维度
+        ## 使用VideoAutoencoderKL
         x_z = self.spatial_vae.encode(x)
 
         if self.micro_frame_size is None:
+            ## 直接对空间编码后的特征x_z进行时间编码，使用VAE_Temporal
+            ## x_z的形状为(B, latent_channels, T, H', W')
+            ## posterior是时间编码后的后验分布对象（例如，对角高斯分布）
+            ## z是从后验分布中采样的潜在向量，形状为(B, latent_channels', T', H', W')，其中T'是时间维度的下采样结果
             posterior = self.temporal_vae.encode(x_z)
             z = posterior.sample()
         else:
@@ -194,16 +200,22 @@ class VideoAutoencoderPipeline(PreTrainedModel):
             z = torch.cat(z_list, dim=2)
 
         if self.cal_loss:
+            ## 返回编码后的潜在向量z、后验分布posterior和空间编码后的特征x_z，用于计算损失
             return z, posterior, x_z
         else:
+            ## 返回归一化后的潜在向量
             return (z - self.shift) / self.scale
 
     def decode(self, z, num_frames=None):
         if not self.cal_loss:
+            ## 对输入的潜在向量z进行逆归一化
             z = z * self.scale.to(z.dtype) + self.shift.to(z.dtype)
 
         if self.micro_frame_size is None:
+            ## 直接对整个潜在向量z进行时间解码和空间解码
+            ## 使用VAE_Temporal.decode将潜在向量z解码为中间特征x_z，num_frames参数用于指定解码后的时间维度长度
             x_z = self.temporal_vae.decode(z, num_frames=num_frames)
+            ## 使用spatial_vae.decode将中间特征x_z解码为最终的输出x
             x = self.spatial_vae.decode(x_z)
         else:
             x_z_list = []
@@ -222,7 +234,7 @@ class VideoAutoencoderPipeline(PreTrainedModel):
 
     def forward(self, x):
         assert self.cal_loss, "This method is only available when cal_loss is True"
-        z, posterior, x_z = self.encode(x)
+        z, posterior, x_z = self.encode(x)  ## 返回编码后的潜在向量z、后验分布posterior和空间编码后的特征x_z
         x_rec, x_z_rec = self.decode(z, num_frames=x_z.shape[2])
         return x_rec, x_z_rec, z, posterior, x_z
 

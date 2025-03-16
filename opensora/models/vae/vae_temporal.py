@@ -125,14 +125,14 @@ class Encoder(nn.Module):
 
     def __init__(
         self,
-        in_out_channels=4,
-        latent_embed_dim=512,  # num channels for latent vector
-        filters=128,
-        num_res_blocks=4,
-        channel_multipliers=(1, 2, 2, 4),
-        temporal_downsample=(False, True, True),
-        num_groups=32,  # for nn.GroupNorm
-        activation_fn="swish",
+        in_out_channels=4,  ## 输入和输出通道数
+        latent_embed_dim=512,  # num channels for latent vector  ## 潜在空间的通道数（即编码后的特征维度）
+        filters=128,  ## 初始卷积层的通道数
+        num_res_blocks=4,  ## 每个模块中的残差块（ResBlock）数量
+        channel_multipliers=(1, 2, 2, 4),  # 每个模块中通道数的倍数
+        temporal_downsample=(False, True, True),  ## 是否在每个模块中对时间维度进行下采样
+        num_groups=32,  # for nn.GroupNorm  ## 用于 nn.GroupNorm 的组数
+        activation_fn="swish",  ## 激活函数
     ):
         super().__init__()
         self.filters = filters
@@ -143,8 +143,10 @@ class Encoder(nn.Module):
         self.num_groups = num_groups
         self.embedding_dim = latent_embed_dim
 
+        ## 使用 get_activation_fn 获取激活函数，并实例化为 self.activate
         self.activation_fn = get_activation_fn(activation_fn)
         self.activate = self.activation_fn()
+        ## 使用 CausalConv3d 作为卷积层类型，它是因果卷积层，通常用于处理时间序列数据，确保时间上的因果关系
         self.conv_fn = CausalConv3d
         self.block_args = dict(
             conv_fn=self.conv_fn,
@@ -155,13 +157,14 @@ class Encoder(nn.Module):
 
         # first layer conv
         self.conv_in = self.conv_fn(
-            in_out_channels,
-            filters,
+            in_out_channels,  ## 输入通道数
+            filters,  ## 输出通道数
             kernel_size=(3, 3, 3),
             bias=False,
         )
 
         # ResBlocks and conv downsample
+        ## 使用 nn.ModuleList 存储残差块和下采样卷积层
         self.block_res_blocks = nn.ModuleList([])
         self.conv_blocks = nn.ModuleList([])
 
@@ -197,8 +200,9 @@ class Encoder(nn.Module):
             prev_filters = filters  # update in_channels
 
         # MAGVIT uses Group Normalization
+        ## 使用 nn.GroupNorm 对特征进行归一化
         self.norm1 = nn.GroupNorm(self.num_groups, prev_filters)
-
+        ## 最后一层卷积将特征映射到潜在空间，输出通道数为 latent_embed_dim
         self.conv2 = self.conv_fn(prev_filters, self.embedding_dim, kernel_size=(1, 1, 1), padding="same")
 
     def forward(self, x):
@@ -386,34 +390,50 @@ class VAE_Temporal(nn.Module):
         return latent_size
 
     def encode(self, x):
+        ## 计算在时间维度（dim=2）上需要填充的大小，以确保时间维度的长度能够被 self.time_downsample_factor 整除
         time_padding = (
             0
             if (x.shape[2] % self.time_downsample_factor == 0)
             else self.time_downsample_factor - x.shape[2] % self.time_downsample_factor
         )
+        ## 在时间维度的末尾填充 time_padding 个零
         x = pad_at_dim(x, (time_padding, 0), dim=2)
+        ## 对x进行时间编码得到encoded_feature
         encoded_feature = self.encoder(x)
+        ## 将编码后的特征映射到一个潜在空间的参数（例如均值和方差）
+        ## 输出moments的形状通常为(B, 2 * latent_channels, T', H', W')，其中latent_channels是潜在空间的通道数，2表示均值和方差
         moments = self.quant_conv(encoded_feature).to(x.dtype)
+        ## 将量化后的特征 moments 传递给 DiagonalGaussianDistribution，构造一个对角高斯分布
         posterior = DiagonalGaussianDistribution(moments)
         return posterior
 
     def decode(self, z, num_frames=None):
+        ## num_frames 是目标时间长度（即解码后希望得到的时间维度长度）
+        ## 计算在时间维度上需要填充的大小，以确保解码后的数据时间长度能够被 self.time_downsample_factor 整除
         time_padding = (
             0
             if (num_frames % self.time_downsample_factor == 0)
             else self.time_downsample_factor - num_frames % self.time_downsample_factor
         )
+        ## 对潜在向量 z 进行卷积操作，将其从量化后的潜在空间映射到适合解码器输入的特征空间
         z = self.post_quant_conv(z)
+        ## 对z进行时间解码，得到z
         x = self.decoder(z)
+        ## 在解码后，裁剪掉时间维度上多余的填充部分，以确保输出的时间长度与目标长度一致
         x = x[:, :, time_padding:]
         return x
 
     def forward(self, x, sample_posterior=True):
+        ## 将x进行时间编码，得到一个后验分布
         posterior = self.encode(x)
+        ## 通过后验分布得到一个样本z
         if sample_posterior:
+            ## 通过采样得到z
             z = posterior.sample()
         else:
+            ## 通过众数得到z
             z = posterior.mode()
+        ## 将z进行时间解码，得到重建的x
         recon_video = self.decode(z, num_frames=x.shape[2])
         return recon_video, posterior, z
 

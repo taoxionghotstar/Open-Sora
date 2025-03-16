@@ -143,15 +143,15 @@ def define_experiment_workspace(cfg, get_last_workspace=False):
         exp_dir: The path to the experiment folder.
     """
     # Make outputs folder (holds all experiment subfolders)
-    os.makedirs(cfg.outputs, exist_ok=True)
-    experiment_index = len(glob(f"{cfg.outputs}/*"))
+    os.makedirs(cfg.outputs, exist_ok=True)  ## e.g. "outputs/vae_stage1"
+    experiment_index = len(glob(f"{cfg.outputs}/*"))  ## 0
     if get_last_workspace:
         experiment_index -= 1
 
     # Create an experiment folder
-    model_name = cfg.model["type"].replace("/", "-")
-    exp_name = f"{experiment_index:03d}-{model_name}"
-    exp_dir = f"{cfg.outputs}/{exp_name}"
+    model_name = cfg.model["type"].replace("/", "-")  ## e.g. OpenSoraVAE_V1_2
+    exp_name = f"{experiment_index:03d}-{model_name}"  ## e.g. 000-OpenSoraVAE_V1_2
+    exp_dir = f"{cfg.outputs}/{exp_name}"  ## e.g. outputs/vae_stage1/000-OpenSoraVAE_V1_2
     return exp_name, exp_dir
 
 

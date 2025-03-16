@@ -100,6 +100,7 @@ class ScalingLayer(nn.Module):
         return (inp - self.shift) / self.scale
 
 
+## 该类实现了一个单一线性层，通过 1x1 卷积操作将输入特征的通道数从 chn_in 转换为 chn_out
 class NetLinLayer(nn.Module):
     """A single linear layer which does a 1x1 conv"""
 
@@ -118,10 +119,14 @@ class NetLinLayer(nn.Module):
         self.model = nn.Sequential(*layers)
 
 
+## 一个预训练的 VGG16 模型的变体，用于提取中间层的特征
 class vgg16(torch.nn.Module):
     def __init__(self, requires_grad=False, pretrained=True):
         super(vgg16, self).__init__()
+        ## 使用 PyTorch 的 torchvision.models.vgg16 加载预训练的 VGG16 模型
+        ## .features 是 VGG16 模型的特征提取部分，包含所有卷积层和池化层
         vgg_pretrained_features = models.vgg16(pretrained=pretrained).features
+        ## 将 VGG16 的特征提取部分划分为 5 个片段（slice1 到 slice5），每个片段对应一个特定的中间层
         self.slice1 = torch.nn.Sequential()
         self.slice2 = torch.nn.Sequential()
         self.slice3 = torch.nn.Sequential()
@@ -129,15 +134,15 @@ class vgg16(torch.nn.Module):
         self.slice5 = torch.nn.Sequential()
         self.N_slices = 5
         for x in range(4):
-            self.slice1.add_module(str(x), vgg_pretrained_features[x])
+            self.slice1.add_module(str(x), vgg_pretrained_features[x])  ## slice1：包含前 4 层（conv1_1 到 relu1_2）
         for x in range(4, 9):
-            self.slice2.add_module(str(x), vgg_pretrained_features[x])
+            self.slice2.add_module(str(x), vgg_pretrained_features[x])  ## slice2：包含第 4 到 9 层（conv2_1 到 relu2_2）
         for x in range(9, 16):
-            self.slice3.add_module(str(x), vgg_pretrained_features[x])
+            self.slice3.add_module(str(x), vgg_pretrained_features[x])  ## slice3：包含第 9 到 16 层（conv3_1 到 relu3_3）
         for x in range(16, 23):
-            self.slice4.add_module(str(x), vgg_pretrained_features[x])
+            self.slice4.add_module(str(x), vgg_pretrained_features[x])  ## slice4：包含第 16 到 23 层（conv4_1 到 relu4_3）
         for x in range(23, 30):
-            self.slice5.add_module(str(x), vgg_pretrained_features[x])
+            self.slice5.add_module(str(x), vgg_pretrained_features[x])  ## slice5：包含第 23 到 30 层（conv5_1 到 relu5_3）
         if not requires_grad:
             for param in self.parameters():
                 param.requires_grad = False

@@ -23,6 +23,8 @@ def is_distributed():
 
 
 def is_main_process():
+    ## is_distributed()判断当前环境是否处于分布式模式
+    ## dist.get_rank()返回当前进程的排名（rank），主进程的 rank 通常为0
     return not is_distributed() or dist.get_rank() == 0
 
 
@@ -41,15 +43,19 @@ def create_logger(logging_dir=None):
         additional_args = dict()
         if logging_dir is not None:
             additional_args["handlers"] = [
-                logging.StreamHandler(),
-                logging.FileHandler(f"{logging_dir}/log.txt"),
+                logging.StreamHandler(),  ## 这是一个日志处理器，用于将日志信息输出到控制台（标准输出流），日志信息会同时在控制台显示
+                logging.FileHandler(f"{logging_dir}/log.txt"),  ## 这是一个日志处理器，用于将日志信息写入到文件中
             ]
+        ## logging.basicConfig 是 Python logging 模块中用于配置全局日志记录器的函数
+        ## 只能被调用一次，用于设置日志的基本格式、级别和处理器
         logging.basicConfig(
             level=logging.INFO,
-            format="[\033[34m%(asctime)s\033[0m] %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
+            format="[\033[34m%(asctime)s\033[0m] %(message)s",  ## 将时间戳显示为蓝色（34m）和重置颜色（0m）
+            datefmt="%Y-%m-%d %H:%M:%S",  ## 时间戳的格式，显示为 YYYY-MM-DD HH:MM:SS
             **additional_args,
         )
+        ## 获取当前模块的日志记录器实例
+        ## 使用__name__作为日志记录器的名称，可以确保每个模块的日志记录器是独立的，避免日志冲突
         logger = logging.getLogger(__name__)
     else:  # dummy logger (does nothing)
         logger = logging.getLogger(__name__)
@@ -72,10 +78,12 @@ def print_0(*args, **kwargs):
 
 
 def create_tensorboard_writer(exp_dir):
+    ## SummaryWriter是TensorBoard的核心类，用于记录训练过程中的指标和事件
     from torch.utils.tensorboard import SummaryWriter
 
     tensorboard_dir = f"{exp_dir}/tensorboard"
     os.makedirs(tensorboard_dir, exist_ok=True)
+    ## 定义writer将数据写入到指定的目录（tensorboard_dir），这些数据可以在TensorBoard中可视化
     writer = SummaryWriter(tensorboard_dir)
     return writer
 
